@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import QrScanner from 'qr-scanner'
 import { parseQR } from '../utils/qr'
+import { canScanBLE, bleReceivePacket } from '../utils/ble'
 import { useAuth } from '../context/AuthContext'
 import api from '../utils/api'
 
@@ -14,23 +16,37 @@ export default function RelayPage() {
   const [error, setError]       = useState('')
   const [camError, setCamError] = useState('')
   const [manualText, setManualText] = useState('')
+  const [bleStatus, setBleStatus]   = useState('')
+  const [bleLoading, setBleLoading] = useState(false)
 
   const videoRef   = useRef(null)
-  const streamRef  = useRef(null)
   const scannerRef = useRef(null)
 
   async function startCamera() {
     setCamError(''); setStep('scanning')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 } },
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-        startFrameScan()
+      // navigator.mediaDevices is undefined in non-secure contexts (plain HTTP)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error(
+          'Camera access requires HTTPS. Open this page via https:// or localhost.'
+        )
       }
+      
+      const scanner = new QrScanner(
+        videoRef.current,
+        (result) => {
+          handleScannedText(result.data)
+        },
+        {
+          returnDetailedScanResult: true,
+          highlightScanRegion: true,
+          highlightCodeOutline: true,
+          preferredCamera: 'environment',
+        }
+      )
+
+      scannerRef.current = scanner
+      await scanner.start()
     } catch (err) {
       setCamError(`Camera error: ${err.message}. Use manual paste instead.`)
       setStep('idle')
@@ -38,40 +54,35 @@ export default function RelayPage() {
   }
 
   function stopCamera() {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    clearInterval(scannerRef.current)
-  }
-
-  function startFrameScan() {
-    if ('BarcodeDetector' in window) {
-      const detector = new BarcodeDetector({ formats: ['qr_code'] })
-      scannerRef.current = setInterval(async () => {
-        if (!videoRef.current) return
-        try {
-          const codes = await detector.detect(videoRef.current)
-          if (codes.length > 0) handleScannedText(codes[0].rawValue)
-        } catch { }
-      }, 500)
-    } else {
-      setCamError('BarcodeDetector not supported. Use paste below.')
-      stopCamera(); setStep('idle')
+    if (scannerRef.current) {
+      scannerRef.current.stop()
+      scannerRef.current.destroy()
+      scannerRef.current = null
     }
   }
+
 
   function handleScannedText(text) {
     stopCamera()
     const p = parseQR(text)
-    if (!p) { setCamError('Not a valid UPI Mesh QR. Try again.'); setStep('idle'); return }
-    setPacket(p); setStep('preview')
+    if (!p) { 
+    setCamError('Not a valid UPI Mesh QR. Try again.');
+     setStep('idle');
+      return 
+    }
+    setPacket(p); 
+    setStep('preview')
   }
 
   useEffect(() => () => stopCamera(), [])
 
   async function handleUpload() {
-    setStep('uploading'); setError('')
+    setStep('uploading'); 
+    setError('')
     try {
       const res = await api.post('/payment/relay', {
-        packet, relayedBy: user?.upiId || 'anonymous',
+        packet,
+         relayedBy: user?.upiId || 'anonymous',
       })
       setResult(res.data)
       if (['SETTLED', 'DUPLICATE_DROPPED'].includes(res.data.outcome)) {
@@ -79,8 +90,14 @@ export default function RelayPage() {
       }
       setStep('result')
     } catch (err) {
-      setError(err.response?.data?.error || err.message)
-      setStep('preview')
+      
+      if (serverData?.outcome) {
+        setResult(serverData)
+        setStep('result')
+      } else {
+        setError(serverData?.error || err.message)
+        setStep('preview')
+      }
     }
   }
 
@@ -90,10 +107,29 @@ export default function RelayPage() {
     setPacket(p); setStep('preview'); setError('')
   }
 
+  async function handleBluetoothReceive() {
+    setBleStatus(''); setBleLoading(true); setCamError('')
+    try {
+      const packetB64 = await bleReceivePacket(setBleStatus)
+      setPacket(packetB64)
+      setStep('preview')
+      setBleStatus('')
+    } catch (err) {
+      // User cancelled the device picker = err.name === 'NotFoundError'
+      if (err.name !== 'NotFoundError') {
+        setBleStatus(`Bluetooth error: ${err.message}`)
+      }
+    } finally {
+      setBleLoading(false)
+    }
+  }
+
   if (step === 'result') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 text-center gap-4">
       <div className="text-6xl">
-        {result?.outcome === 'SETTLED' ? '✅' : result?.outcome === 'DUPLICATE_DROPPED' ? '🟡' : '❌'}
+        {result?.outcome === 'SETTLED' ? '✅' 
+        : result?.outcome === 'DUPLICATE_DROPPED' ? '⚠️' 
+        : '❌'}
       </div>
       <h1 className={`text-2xl font-bold ${result?.outcome === 'SETTLED' ? 'text-green-600' : result?.outcome === 'DUPLICATE_DROPPED' ? 'text-yellow-600' : 'text-red-500'}`}>
         {result?.outcome === 'SETTLED' ? 'Payment relayed!' : result?.outcome === 'DUPLICATE_DROPPED' ? 'Already settled' : 'Upload failed'}
@@ -119,16 +155,25 @@ export default function RelayPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-sm mx-auto p-4 space-y-4">
         <div className="flex items-center gap-3 pt-4">
-          <button onClick={() => navigate('/')} className="text-sm border border-gray-200 px-3 py-1.5 rounded-lg">← Back</button>
+          <button onClick={() => navigate('/')}
+           className="text-sm border border-gray-200 px-3 py-1.5 rounded-lg">
+            ← Back
+          </button>
           <h2 className="font-bold text-gray-900">Relay a payment</h2>
         </div>
 
         {/* Camera */}
         {step === 'scanning' && (
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <video ref={videoRef} className="w-full" muted playsInline />
+            <video ref={videoRef} 
+            className="w-full" 
+            muted 
+            playsInline />
+
             <div className="p-3 text-center">
-              <button onClick={() => { stopCamera(); setStep('idle') }} className="text-sm border border-gray-200 px-4 py-2 rounded-lg">
+              <button 
+              onClick={() => { stopCamera(); setStep('idle') }}
+              className="text-sm border border-gray-200 px-4 py-2 rounded-lg">
                 Cancel
               </button>
             </div>
@@ -139,7 +184,9 @@ export default function RelayPage() {
           <>
             <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
               <div className="text-4xl mb-3">📷</div>
-              <p className="text-sm text-gray-500 mb-4">Scan the payer's QR code with your camera</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Scan the payer's QR code with your camera
+              </p>
               <button
                 onClick={startCamera}
                 disabled={step === 'uploading'}
@@ -153,6 +200,27 @@ export default function RelayPage() {
               <div className="bg-yellow-50 text-yellow-700 text-sm px-4 py-3 rounded-xl">{camError}</div>
             )}
 
+            {/* Bluetooth receive */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 text-center">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Or receive via Bluetooth</div>
+              <p className="text-xs text-gray-500 mb-3">Connect to the payer's phone via Bluetooth and receive their encrypted packet directly</p>
+              <button
+                onClick={handleBluetoothReceive}
+                disabled={bleLoading || step === 'uploading'}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors"
+              >
+                {bleLoading ? '⏳ Connecting…' : '📶 Receive via Bluetooth'}
+              </button>
+              {bleStatus && (
+                <div className="mt-3 text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">{bleStatus}</div>
+              )}
+              {!canScanBLE() && (
+                <div className="mt-3 text-xs text-yellow-600 bg-yellow-50 px-3 py-2 rounded-lg">
+                  ⚠️ Web Bluetooth not available. Use Chrome on Android or Desktop.
+                </div>
+              )}
+            </div>
+
             {/* Manual paste */}
             <div className="bg-white rounded-2xl border border-gray-200 p-5">
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Or paste packet manually</div>
@@ -163,7 +231,11 @@ export default function RelayPage() {
                 onChange={(e) => setManualText(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 font-mono text-xs resize-none focus:outline-none focus:border-green-500"
               />
-              {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-lg mt-2">{error}</div>}
+              {error && (
+              <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-lg mt-2">
+                {error}
+                </div>
+                )}
               <button
                 onClick={handleManualPaste}
                 className="mt-3 w-full border border-gray-200 font-semibold py-2.5 rounded-xl text-sm hover:bg-gray-50 transition-colors"
@@ -184,7 +256,11 @@ export default function RelayPage() {
             <div className="bg-blue-50 text-blue-700 text-xs px-4 py-3 rounded-xl">
               This packet is encrypted — you cannot read its contents. Uploading it helps the payer send money.
             </div>
-            {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl">{error}</div>}
+            {error && (
+            <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl">
+              {error}
+              </div>
+              )}
             <div className="flex gap-3">
               <button onClick={() => setStep('idle')} className="border border-gray-200 px-4 py-2.5 rounded-xl text-sm font-semibold">
                 Cancel

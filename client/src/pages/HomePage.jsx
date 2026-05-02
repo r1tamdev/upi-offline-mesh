@@ -54,7 +54,7 @@ export default function HomePage() {
           >
             <div className="text-3xl mb-2">💸</div>
             <div className="font-bold text-gray-900">Pay</div>
-            <div className="text-xs text-gray-400 mt-0.5">Send via QR · No internet</div>
+            <div className="text-xs text-gray-400 mt-0.5">Send via QR / Bluetooth</div>
           </button>
           <button
             onClick={() => navigate('/relay')}
@@ -62,7 +62,7 @@ export default function HomePage() {
           >
             <div className="text-3xl mb-2">📡</div>
             <div className="font-bold text-gray-900">Relay</div>
-            <div className="text-xs text-gray-400 mt-0.5">Help someone pay</div>
+            <div className="text-xs text-gray-400 mt-0.5">Help someone pay · QR / BLE</div>
           </button>
         </div>
 
