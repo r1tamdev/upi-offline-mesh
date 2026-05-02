@@ -47,3 +47,15 @@ export async function encryptPacket(instruction, publicKeyPem) {
 
   return btoa(String.fromCharCode(...packet))
 }
+
+/**
+ * Compute the SHA-256 fingerprint of a base64 packet string.
+ * Must produce the exact same hex digest as the server's
+ * crypto.createHash('sha256').update(packetB64).digest('hex')
+ */
+export async function fingerprint(packetB64) {
+  const data = new TextEncoder().encode(packetB64)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+}

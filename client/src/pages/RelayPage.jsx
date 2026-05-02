@@ -22,36 +22,55 @@ export default function RelayPage() {
   const videoRef   = useRef(null)
   const scannerRef = useRef(null)
 
-  async function startCamera() {
-    setCamError(''); setStep('scanning')
-    try {
-      // navigator.mediaDevices is undefined in non-secure contexts (plain HTTP)
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error(
-          'Camera access requires HTTPS. Open this page via https:// or localhost.'
-        )
-      }
-      
-      const scanner = new QrScanner(
-        videoRef.current,
-        (result) => {
-          handleScannedText(result.data)
-        },
-        {
-          returnDetailedScanResult: true,
-          highlightScanRegion: true,
-          highlightCodeOutline: true,
-          preferredCamera: 'environment',
-        }
-      )
-
-      scannerRef.current = scanner
-      await scanner.start()
-    } catch (err) {
-      setCamError(`Camera error: ${err.message}. Use manual paste instead.`)
-      setStep('idle')
-    }
+  function startCamera() {
+    setCamError('')
+    setStep('scanning')
   }
+
+  // Create the QR scanner AFTER React renders the <video> element
+  useEffect(() => {
+    if (step !== 'scanning' || !videoRef.current) return
+
+    let cancelled = false
+
+    async function initScanner() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error(
+            'Camera access requires HTTPS. Open this page via https:// or localhost.'
+          )
+        }
+
+        const scanner = new QrScanner(
+          videoRef.current,
+          (result) => {
+            if (!cancelled) handleScannedText(result.data)
+          },
+          {
+            returnDetailedScanResult: true,
+            highlightScanRegion: true,
+            highlightCodeOutline: true,
+            preferredCamera: 'environment',
+          }
+        )
+
+        scannerRef.current = scanner
+        await scanner.start()
+      } catch (err) {
+        if (!cancelled) {
+          setCamError(`Camera error: ${err.message}. Use manual paste instead.`)
+          setStep('idle')
+        }
+      }
+    }
+
+    initScanner()
+
+    return () => {
+      cancelled = true
+      stopCamera()
+    }
+  }, [step])
 
   function stopCamera() {
     if (scannerRef.current) {
@@ -90,7 +109,9 @@ export default function RelayPage() {
       }
       setStep('result')
     } catch (err) {
-      
+      // Server returns 422 for TAMPERED / EXPIRED / FAILED outcomes —
+      // these still contain a valid result body, so show it on the result screen.
+      const serverData = err.response?.data
       if (serverData?.outcome) {
         setResult(serverData)
         setStep('result')

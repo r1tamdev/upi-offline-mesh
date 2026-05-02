@@ -11,7 +11,7 @@ export function encrypt(instructionObj, publicKeyPem) {
   const tag = cipher.getAuthTag();
 
   const encryptedKey = crypto.publicEncrypt(
-    { key: publicKeyPem, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
+    { key: publicKeyPem, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
     aesKey
   );
 
@@ -27,7 +27,7 @@ export function decrypt(packetB64) {
 
   const { privateKey } = getKeyPair();
   const aesKey = crypto.privateDecrypt(
-    { key: privateKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
+    { key: privateKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
     encryptedKey
   );
 

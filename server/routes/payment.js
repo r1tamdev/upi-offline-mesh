@@ -6,13 +6,19 @@ import requireAuth from './requireAuth.js';
 const router = Router();
 
 router.post('/relay', async (req, res) => {
-  const { packet, relayedBy } = req.body;
-  if (!packet || typeof packet !== 'string')
-    return res.status(400).json({ error: '"packet" (base64 string) is required' });
+  try {
+    const { packet, relayedBy } = req.body;
+    if (!packet || typeof packet !== 'string')
+      return res.status(400).json({ error: '"packet" (base64 string) is required' });
 
-  const result = await ingest(packet, relayedBy || 'anonymous');
-  const statusCode = ['SETTLED', 'DUPLICATE_DROPPED'].includes(result.outcome) ? 200 : 422;
-  res.status(statusCode).json(result);
+    const result = await ingest(packet, relayedBy || 'anonymous');
+    console.log('[Relay]', result.outcome, result.packetHash?.slice(0, 12));
+    const statusCode = ['SETTLED', 'DUPLICATE_DROPPED'].includes(result.outcome) ? 200 : 422;
+    res.status(statusCode).json(result);
+  } catch (err) {
+    console.error('[Relay] Unhandled error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.get('/status/:packetHash', async (req, res) => {
