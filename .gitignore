@@ -12,6 +12,7 @@ build/
 
 # Logs
 *.log
+keypair.json
 npm-debug.log*
 
 # OS files
