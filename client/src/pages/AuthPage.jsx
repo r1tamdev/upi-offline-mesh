@@ -1,6 +1,9 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import CountryCodePicker from '../components/CountryCodePicker'
+import '../components/CountryCodePicker.css'
+import countryCodes from '../utils/countryCodes'
 
 export default function AuthPage() {
   const { login, register } = useAuth()
@@ -8,7 +11,7 @@ export default function AuthPage() {
   const [mode, setMode]       = useState('login')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
-  const [form, setForm]       = useState({ name: '', phone: '', upiId: '', pin: '' })
+  const [form, setForm]       = useState({ name: '', email: '', phone: '', upiId: '', pin: '', countryIso: 'IN' })
   const [showPin, setShowPin]     = useState(false)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
@@ -17,8 +20,12 @@ export default function AuthPage() {
     setError('')
     setLoading(true)
     try {
-      if (mode === 'login') await login(form.phone, form.pin)
-      else await register(form.name, form.phone, form.upiId, form.pin)
+      // Look up dial code from ISO and combine with local number
+      const country = countryCodes.find((c) => c.iso === form.countryIso)
+      const dialCode = country?.dial || '+91'
+      const fullPhone = dialCode + form.phone
+      if (mode === 'login') await login(fullPhone, form.pin)
+      else await register(form.name, fullPhone, form.upiId, form.pin)
       navigate('/')
     } catch (err) {
       setError(err.response?.data?.error || err.message)
@@ -61,7 +68,7 @@ export default function AuthPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Full name</label>
                   <input
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500 font-[Georgia]"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500"
                     placeholder="Full Name"
                     value={form.name}
                     onChange={set('name')}
@@ -69,9 +76,19 @@ export default function AuthPage() {
                   />
                 </div>
                 <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+                  <input
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500"
+                    placeholder="Email"
+                    value={form.email}
+                    onChange={set('email')}
+                    required
+                  />
+                </div>
+                <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">UPI ID</label>
                   <input
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500 font-[Georgia]"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500"
                     placeholder="yourname@upi"
                     value={form.upiId}
                     onChange={set('upiId')}
@@ -82,20 +99,30 @@ export default function AuthPage() {
             )}
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Mobile number</label>
-              <input
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500 font-[Georgia]"
-                placeholder="Mobile Number"
-                value={form.phone}
-                onChange={set('phone')}
-                type="tel"
-                required
-              />
+              <div className='flex items-center border border-gray-200 rounded-xl overflow-visible'>
+                <CountryCodePicker
+                  id="auth-country-code"
+                  value={form.countryIso}
+                  onChange={({ iso }) => setForm((f) => ({ ...f, countryIso: iso }))}
+                />
+                <div className="w-px h-6 bg-gray-200 shrink-0" />
+                <input
+                  className="flex-1 px-3 py-3 text-sm bg-transparent focus:outline-none"
+                  placeholder="Mobile number"
+                  value={form.phone}
+                  onChange={set('phone')}
+                  type="tel"
+                  maxLength={15}
+                  inputMode="numeric"
+                  required
+                />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">4-digit UPI PIN</label>
               <div className="relative">
                 <input
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500 pr-12 tracking-widest font-[Georgia]"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-green-500 pr-12 tracking-widest"
                   placeholder="••••"
                   value={form.pin}
                   onChange={(e) => {

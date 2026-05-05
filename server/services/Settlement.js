@@ -1,8 +1,8 @@
-import mongoose from 'mongoose';
-import User from '../models/User.js';
-import Payment from '../models/payment.js';
+import mongoose from "mongoose";
+import User from "../models/user.js";
+import Payment from "../models/payment.js";
 
-export async function settle(instruction, packetHash, relayedBy = 'anonymous') {
+export async function settle(instruction, packetHash, relayedBy = "anonymous") {
   const { nonce, sender, receiver, amount, note, signedAt } = instruction;
 
   let session = null;
@@ -13,7 +13,7 @@ export async function settle(instruction, packetHash, relayedBy = 'anonymous') {
     session.startTransaction();
   } catch {
     useSession = false;
-    console.warn('[Settlement] Running without session (no replica set)');
+    console.warn("[Settlement] Running without session (no replica set)");
   }
 
   const opts = useSession ? { session } : {};
@@ -21,7 +21,7 @@ export async function settle(instruction, packetHash, relayedBy = 'anonymous') {
   try {
     const senderDoc = await User.findOne({ upiId: sender }, null, opts);
     if (!senderDoc) throw new Error(`Sender not found: ${sender}`);
-    if (senderDoc.balance < amount) throw new Error('INSUFFICIENT_FUNDS');
+    if (senderDoc.balance < amount) throw new Error("INSUFFICIENT_FUNDS");
 
     const receiverDoc = await User.findOne({ upiId: receiver }, null, opts);
     if (!receiverDoc) throw new Error(`Receiver not found: ${receiver}`);
@@ -33,9 +33,21 @@ export async function settle(instruction, packetHash, relayedBy = 'anonymous') {
     await receiverDoc.save(opts);
 
     const [payment] = await Payment.create(
-      [{ packetHash, nonce, sender, receiver, amount, note, signedAt,
-         status: 'SETTLED', relayedBy, settledAt: new Date() }],
-      opts
+      [
+        {
+          packetHash,
+          nonce,
+          sender,
+          receiver,
+          amount,
+          note,
+          signedAt,
+          status: "SETTLED",
+          relayedBy,
+          settledAt: new Date(),
+        },
+      ],
+      opts,
     );
 
     if (useSession) await session.commitTransaction();
